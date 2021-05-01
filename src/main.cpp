@@ -56,34 +56,118 @@ struct STAT_info
 	NiPoint3 A, B;
 };
 
+void mull(NiPoint3& a, const NiPoint3& b)
+{
+	a.x *= b.x, a.y *= b.y, a.z *= b.z;
+}
+
+struct Rect
+{
+	NiPoint3 M, B, alpha;  // halfed bounds
+	std::vector<NiPoint3> get_vertexes()
+	{
+		std::vector<NiPoint3> ans = { { 1, 1, 1 }, { 1, 1, -1 }, { 1, -1, 1 },
+			{ 1, -1, -1 }, { -1, 1, 1 }, { -1, 1, -1 }, { -1, -1, 1 }, { -1, -1, -1 } };
+		for (auto& i : ans) {
+			mull(i, B);
+			i += M;
+		}
+		return ans;
+	}
+	std::vector<NiPoint3> get_edges()
+	{
+		std::vector<NiPoint3> ans = { { 0, 0, 1 }, { 0, 0, -1 }, { 0, 1, 0 },
+			{ 0, -1, 0 }, { 1, 0, 0 }, { -1, 0, 0 } };
+		for (auto& i : ans) {
+			mull(i, B);
+			i += M;
+		}
+		return ans;
+	}
+};
+
 std::unordered_map<uint32_t, STAT_info> data;
 
-bool intersects_rectangles(const NiPoint3& A1, const NiPoint3& B1, const NiPoint3& A2, const NiPoint3& B2)
+void rotate(NiPoint3& A, const NiPoint3 O, const NiPoint3 angle)
 {
-	if (B1.y < A2.y)
-		return false;
-	if (B2.y < A1.y)
-		return false;
-	if (B1.x < A2.x)
-		return false;
-	if (B2.x < A1.x)
-		return false;
-	if (B1.z < A2.z)
-		return false;
-	if (B2.z < A1.z)
-		return false;
+	float cosa = cos(angle.z);
+	float sina = sin(angle.z);
 
+	float cosb = cos(angle.x);
+	float sinb = sin(angle.x);
+
+	float cosc = cos(angle.y);
+	float sinc = sin(angle.y);
+
+	float Axx = cosa * cosb;
+	float Axy = cosa * sinb * sinc - sina * cosc;
+	float Axz = cosa * sinb * cosc + sina * sinc;
+
+	float Ayx = sina * cosb;
+	float Ayy = sina * sinb * sinc + cosa * cosc;
+	float Ayz = sina * sinb * cosc - cosa * sinc;
+
+	float Azx = -sinb;
+	float Azy = cosb * sinc;
+	float Azz = cosb * cosc;
+
+	A -= O;
+
+	float px = A.x;
+	float py = A.y;
+	float pz = A.z;
+
+	A.x = Axx * px + Axy * py + Axz * pz;
+	A.y = Ayx * px + Ayy * py + Ayz * pz;
+	A.z = Azx * px + Azy * py + Azz * pz;
+
+	A += O;
+}
+
+void rotate(Rect& r, const NiPoint3 O, const NiPoint3 angle)
+{
+	r.alpha += angle;
+	rotate(r.M, O, angle);
+}
+
+bool edge_separate(const NiPoint3 O, const NiPoint3 M, const std::vector<NiPoint3>& verts)
+{
+	bool ans = true;
+	for (auto& i : verts) {
+		ans = ans && ((i - O) * (M - O) < 0);
+	}
+	return ans;
+}
+
+bool cannot_separate_(Rect p, Rect a)
+{
+	rotate(a, p.M, -p.alpha);
+	rotate(p, p.M, -p.alpha);
+	auto p_verts = p.get_vertexes();
+	auto a_verts = a.get_vertexes();
+	for (auto& i : a_verts) {
+		rotate(i, a.M, a.alpha);
+	}
+
+	auto p_edges = p.get_edges();
+	for (auto& i : p_edges) {
+		if (edge_separate(i, p.M, a_verts))
+			return false;
+	}
 	return true;
+}
+
+bool cannot_separate(const Rect& A, const Rect& B)
+{
+	return cannot_separate_(A, B) && cannot_separate_(B, A);
 }
 
 bool is_collides(RE::StaticFunctionTag*, RE::TESObjectREFR* p, RE::TESObjectREFR* a)
 {
 	auto id = a->GetBaseObject()->formID;
 	if (id > 0x01000000)
-		id = id & 0x00FFFFFF | 0x01000000;  // possible overlaps ye (sory)
+		id = id & 0x00FFFFFF | 0x01000000;	// possible overlaps ye (sory)
 
-	const float PLAYER_WIDTH = 30.0f, PLAYER_HEIGHT = 180.0f;
-	auto player_pos = p->GetPosition();
 	auto player_scale = get_scale(p);
 	NiPoint3 A, B;
 	auto i = data.find(id);
@@ -97,12 +181,13 @@ bool is_collides(RE::StaticFunctionTag*, RE::TESObjectREFR* p, RE::TESObjectREFR
 		A = i->second.A * scale;
 		B = i->second.B * scale;
 	}
-	
+
+	const float PLAYER_WIDTH = 30.0f, PLAYER_HEIGHT = 180.0f;
 	auto a_pos = a->GetPosition();
-	return intersects_rectangles(
-		player_pos - NiPoint3{ PLAYER_WIDTH / 2.0f, PLAYER_WIDTH / 2.0f, 10.0f } * player_scale,
-		player_pos + NiPoint3{ PLAYER_WIDTH / 2.0f, PLAYER_WIDTH / 2.0f, PLAYER_HEIGHT } * player_scale,
-		A + a_pos, B + a_pos);
+	return cannot_separate({ p->GetPosition() + NiPoint3{ 0, 0, PLAYER_HEIGHT * 0.5f - 5.0f },
+							   NiPoint3(PLAYER_WIDTH * 0.5f, PLAYER_WIDTH * 0.5f, PLAYER_HEIGHT * 0.5f + 5.0f) * player_scale,
+							   p->GetAngle() },
+		{ a_pos + (A + B) * 0.5f, (B - A) * 0.5f, a->GetAngle() });
 }
 
 bool RegisterFuncs(RE::BSScript::IVirtualMachine* a_vm)
