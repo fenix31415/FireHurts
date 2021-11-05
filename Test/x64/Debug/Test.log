@@ -1,5 +1,0 @@
-﻿  Source.cpp
-D:\Games\SSE\modding\fire\ExamplePlugin-CommonLibSSE\Test\Source.cpp(89,22): warning C4244: return: преобразование "double" в "float", возможна потеря данных
-D:\Games\SSE\modding\fire\ExamplePlugin-CommonLibSSE\Test\Source.cpp(94,93): warning C4305: инициализация: усечение из "double" в "float"
-D:\Games\SSE\modding\fire\ExamplePlugin-CommonLibSSE\Test\Source.cpp(95,93): warning C4305: инициализация: усечение из "double" в "float"
-  Test.vcxproj -> D:\Games\SSE\modding\fire\ExamplePlugin-CommonLibSSE\build\x64\Debug\Test.exe
